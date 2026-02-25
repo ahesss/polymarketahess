@@ -8,13 +8,14 @@ const router = express.Router();
 // Initialize the Polymarket Trading Bot Instance
 const pmBot = new PolymarketAPI();
 
-// Middleware to check API key or authenticate the user session
-// Here we would normally verify the email from the frontend login.
+// Middleware to check Private Key
 const checkAuth = (req, res, next) => {
-    // Basic check for now
-    if (!req.headers.authorization) {
-        return res.status(401).json({ error: "Unauthorized" });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Unauthorized: Missing Private Key" });
     }
+    const token = authHeader.split(' ')[1];
+    req.privateKey = token;
     next();
 };
 
@@ -40,14 +41,14 @@ router.get('/status', (req, res) => {
  */
 router.post('/start', checkAuth, async (req, res) => {
     try {
-        // The private key should come from a secure vault or Env DB linked to the user's email
-        const userPrivateKey = process.env.POLYGON_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001';
+        const userPrivateKey = req.privateKey;
+        const { tradeSize } = req.body;
 
-        console.log(`[SYS] Starting AI Agent...`);
-        const result = await pmBot.init(userPrivateKey);
+        console.log(`[SYS] Starting AI Agent... Trade Size Set To ${tradeSize}`);
+        const result = await pmBot.init(userPrivateKey, tradeSize);
 
         if (result.status === 'success') {
-            res.json({ message: "Bot started successfully", address: result.address });
+            res.json({ message: "Bot started successfully", address: result.address, balance: result.balance });
         } else {
             res.status(500).json({ error: "Failed to initialize bot", details: result.message });
         }
@@ -68,14 +69,14 @@ router.post('/stop', checkAuth, (req, res) => {
 
 /**
  * 4. GET MARKET STATS 
- * Called by the frontend to update the scanning UI (BTC price, active markets).
+ * Called by the frontend to update the scanning UI and wallet balance.
  */
-router.get('/scan', async (req, res) => {
+router.get('/scan', checkAuth, async (req, res) => {
     if (!pmBot.isActive) {
         return res.status(400).json({ error: "Bot is not active" });
     }
 
-    // Call the "AI" Scanning logic
+    // Call the "AI" Scanning logic and fetch balance
     const stats = await pmBot.scanMarkets();
 
     if (stats) {
