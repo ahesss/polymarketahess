@@ -7,7 +7,7 @@ import {
 export default function Dashboard() {
     const [isActive, setIsActive] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
-    const [btcPrice, setBtcPrice] = useState('65,470.56');
+    const btcPrice = '65,470.56';
 
     // Dummy log generator for UI
     useEffect(() => {
@@ -15,7 +15,6 @@ export default function Dashboard() {
 
         const interval = setInterval(() => {
             const isBlock = Math.random() > 0.7;
-            const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
 
             if (isBlock) {
                 setLogs(prev => [`[LIVE] GEO-BLOCKED: Trading restricted in your region, please refer to available regions - https://docs.polymarket.com/developers/CLOB/geoblock`, ...prev]);
