@@ -7,47 +7,87 @@ import {
 export default function Dashboard() {
     const [isActive, setIsActive] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
-    const [btcPrice, setBtcPrice] = useState('65,470.56');
+    const [btcPrice, setBtcPrice] = useState('0.00');
     const [markets, setMarkets] = useState(0);
     const [signals, setSignals] = useState(0);
 
-    // API Polling Loop
+    // Real Data State
+    const [walletBalance, setWalletBalance] = useState('0.00');
+    const [tradeSize, setTradeSize] = useState('5'); // Default $5
+
+    // Check Auth
+    useEffect(() => {
+        const pk = localStorage.getItem('pm_private_key');
+        if (!pk) {
+            window.location.href = '/login';
+        }
+
+        const savedSize = localStorage.getItem('pm_trade_size');
+        if (savedSize) setTradeSize(savedSize);
+    }, []);
+
+    // API Polling Loop (Balances & Scans)
     useEffect(() => {
         if (!isActive) return;
 
         const interval = setInterval(async () => {
             try {
-                const res = await fetch('/api/bot/scan');
+                const pk = localStorage.getItem('pm_private_key');
+                if (!pk) return;
+
+                const res = await fetch('/api/bot/scan', {
+                    headers: { 'Authorization': `Bearer ${pk}` }
+                });
+
                 if (res.ok) {
                     const data = await res.json();
-                    setBtcPrice(data.btcPrice);
-                    setMarkets(data.markets);
-                    setSignals(data.signals);
 
-                    setLogs(prev => [`[AI] BTC=$${data.btcPrice} | ${data.markets} markets -> ${data.signals} signals -> 0 trades (LIVE)`, ...prev]);
+                    if (data.btcPrice) setBtcPrice(data.btcPrice);
+                    if (data.markets !== undefined) setMarkets(data.markets);
+                    if (data.signals !== undefined) setSignals(data.signals);
+                    if (data.balance !== undefined) setWalletBalance(data.balance);
+
+                    if (data.log) {
+                        setLogs(prev => [data.log, ...prev].slice(0, 50)); // Keep last 50 logs
+                    }
                 } else {
                     console.error("Fetch returned non-OK status");
                 }
             } catch (err) {
-                setLogs(prev => [`[LIVE] GEO-BLOCKED or API Error: Cannot connect to Polymarket. Please check VPN or API keys.`, ...prev]);
+                setLogs(prev => [`[LIVE] Error connecting to Bot Backend. Retrying...`, ...prev]);
             }
-        }, 5000);
+        }, 3000);
 
         return () => clearInterval(interval);
     }, [isActive]);
 
+    const handleTradeSizeChange = (size: string) => {
+        setTradeSize(size);
+        localStorage.setItem('pm_trade_size', size);
+        setLogs(prev => [`[SYS] Trade size updated to $${size}`, ...prev]);
+    };
+
     const toggleBot = async () => {
         try {
+            const pk = localStorage.getItem('pm_private_key');
+            if (!pk) {
+                setLogs(prev => ['[ERROR] No Private Key found. Please relogin.', ...prev]);
+                return;
+            }
+
             if (!isActive) {
                 // Start Bot
                 const res = await fetch('/api/bot/start', {
                     method: 'POST',
-                    headers: { 'Authorization': 'Bearer DUMMY_TOKEN' }
+                    headers: { 'Authorization': `Bearer ${pk}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tradeSize })
                 });
 
                 if (res.ok) {
+                    const data = await res.json();
                     setIsActive(true);
-                    setLogs(prev => ['[SYS] Bot Started. Waiting for signals...', ...prev]);
+                    setWalletBalance(data.balance || '0.00');
+                    setLogs(prev => ['[SYS] Bot Started. Real Trading Engine Online.', ...prev]);
                 } else {
                     const errorData = await res.json();
                     setLogs(prev => [`[ERROR] Failed to start bot: ${errorData.error}`, ...prev]);
@@ -56,13 +96,14 @@ export default function Dashboard() {
                 // Stop Bot
                 await fetch('/api/bot/stop', {
                     method: 'POST',
-                    headers: { 'Authorization': 'Bearer DUMMY_TOKEN' }
+                    headers: { 'Authorization': `Bearer ${pk}` }
                 });
                 setIsActive(false);
-                setLogs(prev => ['[SYS] Bot Stopped.', ...prev]);
+                setLogs(prev => ['[SYS] Bot Stopped safely.', ...prev]);
             }
         } catch (err) {
             console.error("Failed to toggle bot", err);
+            setLogs(prev => ['[ERROR] Backend connection failed.', ...prev]);
         }
     };
 
@@ -72,13 +113,14 @@ export default function Dashboard() {
             {/* Top Stats Grid */}
             <div className="grid grid-cols-2 gap-4">
                 {/* Wallet Value */}
-                <div className="glass-panel p-4">
+                <div className="glass-panel p-4 outline outline-1 outline-polymarket-green/20 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-polymarket-green/5 blur-xl rounded-full"></div>
                     <div className="flex items-center text-polymarket-textMuted text-xs mb-2 uppercase tracking-wide">
-                        <Wallet className="w-4 h-4 mr-2" />
-                        Wallet Value
+                        <Wallet className="w-4 h-4 mr-2 text-polymarket-green" />
+                        USDC Balance (Polygon)
                     </div>
-                    <div className="text-2xl font-bold text-polymarket-green">$1.30</div>
-                    <div className="text-xs text-polymarket-textMuted mt-1">0.0000 MATIC</div>
+                    <div className="text-2xl font-bold text-polymarket-green">${walletBalance}</div>
+                    <div className="text-[10px] text-polymarket-textMuted mt-1">Live from Wallet</div>
                 </div>
 
                 {/* Total Profit */}
@@ -123,32 +165,58 @@ export default function Dashboard() {
             </div>
 
             {/* AI Agent Control Panel */}
-            <div className="glass-panel p-5 mt-6 border-polymarket-border/50">
-                <div className="flex justify-between items-center mb-6">
+            <div className="glass-panel p-5 mt-6 border-polymarket-border/80 shadow-lg relative overflow-hidden">
+                {/* Glowing status line */}
+                <div className={`absolute top-0 left-0 w-full h-1 ${isActive ? 'bg-polymarket-green shadow-[0_0_15px_#10B981]' : 'bg-gray-600'}`}></div>
+
+                <div className="flex justify-between items-center mb-6 mt-1">
                     <div className="flex items-center">
-                        <Brain className="w-6 h-6 text-polymarket-green mr-3" />
-                        <h2 className="font-bold text-lg">AI Agent &mdash; BTC 5min</h2>
+                        <Brain className={`w-6 h-6 mr-3 ${isActive ? 'text-polymarket-green animate-pulse' : 'text-gray-500'}`} />
+                        <div>
+                            <h2 className="font-bold text-lg text-white">Quantitative AI &mdash; BTC 5min</h2>
+                            <p className="text-[10px] text-polymarket-textMuted">Trading "Bitcoin Up or Down" Markets</p>
+                        </div>
                     </div>
 
                     <div className="flex items-center space-x-3">
-                        <div className={`text-xs font-bold ${isActive ? 'text-polymarket-green' : 'text-polymarket-textMuted'}`}>
-                            &#x25CF; {isActive ? 'ACTIVE' : 'OFF'}
+                        <div className={`text-xs font-bold ${isActive ? 'text-polymarket-green' : 'text-gray-500'}`}>
+                            &#x25CF; {isActive ? 'LIVE TRADING' : 'OFFLINE'}
                         </div>
 
                         {/* Custom Toggle Switch */}
                         <button
                             onClick={toggleBot}
-                            className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${isActive ? 'bg-polymarket-green' : 'bg-gray-600'}`}
+                            className={`w-14 h-7 rounded-full p-1 transition-all duration-300 ease-in-out ${isActive ? 'bg-polymarket-green border border-[#2DD4BF]' : 'bg-[#1A1D24] border border-gray-700'}`}
                         >
-                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${isActive ? 'translate-x-6' : 'translate-x-0'}`} />
+                            <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ease-in-out ${isActive ? 'translate-x-7 shadow-[0_0_10px_white]' : 'translate-x-0'}`} />
                         </button>
                     </div>
                 </div>
 
+                {/* Trade Sizing (ONLY SHOW WHEN NOT ACTIVE to prevent mid-trade changes) */}
+                <div className="mb-5 pb-5 border-b border-polymarket-border/50">
+                    <div className="text-xs text-polymarket-textMuted mb-3 uppercase tracking-wider font-semibold">Trade Size per Signal</div>
+                    <div className="flex space-x-2">
+                        {['5', '10', '25', 'MAX'].map((size) => (
+                            <button
+                                key={size}
+                                disabled={isActive}
+                                onClick={() => handleTradeSizeChange(size)}
+                                className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-all ${tradeSize === size
+                                        ? 'bg-polymarket-blue/20 text-polymarket-blue border border-polymarket-blue'
+                                        : 'bg-[#1A1D24] text-polymarket-text border border-polymarket-border hover:bg-[#2A2D34]'
+                                    } ${isActive && 'opacity-50 cursor-not-allowed'}`}
+                            >
+                                {size === 'MAX' ? 'MAX' : `$${size}`}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Scanning Status */}
-                <div className={`rounded-xl p-3 mb-4 flex items-center justify-center text-sm ${isActive ? 'bg-[#064E3B]/40 text-polymarket-green border border-polymarket-green/20' : 'bg-polymarket-card text-polymarket-textMuted'}`}>
+                <div className={`rounded-lg p-3 mb-4 flex items-center justify-center text-sm font-medium transition-all ${isActive ? 'bg-[#064E3B]/40 text-polymarket-green border border-polymarket-green/30' : 'bg-[#1A1D24] text-gray-500 border border-polymarket-border'}`}>
                     <RefreshCw className={`w-4 h-4 mr-2 ${isActive ? 'animate-spin' : ''}`} />
-                    {isActive ? 'SCANNING... \u2022 Cycle #3 \u2022 0 trades' : 'AGENT STANDBY'}
+                    {isActive ? 'ANALYZING ORDERBOOK & MOMENTUM...' : 'BOT ENGINE STANDBY'}
                 </div>
 
                 {/* Mini Stats */}
@@ -169,29 +237,18 @@ export default function Dashboard() {
 
                 {/* Active Predictions List */}
                 <div className="space-y-2">
+                    <div className="text-xs text-polymarket-textMuted uppercase tracking-wider mb-2 font-semibold">Active Targets</div>
                     {/* Item 1 */}
-                    <div className="border border-polymarket-green/30 bg-[#064E3B]/20 rounded-lg p-3 relative overflow-hidden">
-                        <div className="flex justify-between items-start mb-1">
-                            <span className="font-bold text-sm">NO @ $0.4950</span>
-                            <span className="text-polymarket-green text-sm">72%</span>
+                    <div className="border border-polymarket-border bg-[#1A1D24] rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div className="text-xs text-polymarket-textMuted mb-0.5">Bitcoin Up or Down</div>
+                            <div className="font-bold text-sm text-white">5-Minute Intervals</div>
                         </div>
-                        <div className="text-[10px] text-polymarket-textMuted">Bitcoin Up or Down - February 26, 5:15AM-5:20AM ET</div>
-                        {/* Progress bar background */}
-                        <div className="absolute bottom-0 left-0 h-0.5 bg-polymarket-green/30 w-full">
-                            <div className="h-full bg-polymarket-green" style={{ width: '72%' }}></div>
-                        </div>
-                    </div>
-
-                    {/* Item 2 */}
-                    <div className="border border-polymarket-green/30 bg-[#064E3B]/20 rounded-lg p-3 relative overflow-hidden">
-                        <div className="flex justify-between items-start mb-1">
-                            <span className="font-bold text-sm">NO @ $0.4950</span>
-                            <span className="text-polymarket-green text-sm">71%</span>
-                        </div>
-                        <div className="text-[10px] text-polymarket-textMuted">Bitcoin Up or Down - February 26, 5:20AM-5:25AM ET</div>
-                        {/* Progress bar background */}
-                        <div className="absolute bottom-0 left-0 h-0.5 bg-polymarket-green/30 w-full">
-                            <div className="h-full bg-polymarket-green" style={{ width: '71%' }}></div>
+                        <div className="text-right">
+                            <div className="text-[10px] text-polymarket-textMuted mb-1">Target Action</div>
+                            <div className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#064E3B] text-polymarket-green border border-polymarket-green/30">
+                                BUY YES / BUY NO
+                            </div>
                         </div>
                     </div>
                 </div>
