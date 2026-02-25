@@ -195,21 +195,31 @@ export default function Dashboard() {
 
                 {/* Trade Sizing (ONLY SHOW WHEN NOT ACTIVE to prevent mid-trade changes) */}
                 <div className="mb-5 pb-5 border-b border-polymarket-border/50">
-                    <div className="text-xs text-polymarket-textMuted mb-3 uppercase tracking-wider font-semibold">Trade Size per Signal</div>
-                    <div className="flex space-x-2">
-                        {['5', '10', '25', 'MAX'].map((size) => (
-                            <button
-                                key={size}
+                    <div className="text-xs text-polymarket-textMuted mb-3 uppercase tracking-wider font-semibold">Trade Size per Signal (Minimum $0.10)</div>
+                    <div className="flex space-x-2 items-center">
+                        <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-polymarket-textMuted font-bold">$</span>
+                            <input
+                                type="number"
+                                min="0.1"
+                                step="0.1"
                                 disabled={isActive}
-                                onClick={() => handleTradeSizeChange(size)}
-                                className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-all ${tradeSize === size
-                                        ? 'bg-polymarket-blue/20 text-polymarket-blue border border-polymarket-blue'
-                                        : 'bg-[#1A1D24] text-polymarket-text border border-polymarket-border hover:bg-[#2A2D34]'
-                                    } ${isActive && 'opacity-50 cursor-not-allowed'}`}
-                            >
-                                {size === 'MAX' ? 'MAX' : `$${size}`}
-                            </button>
-                        ))}
+                                value={tradeSize}
+                                onChange={(e) => handleTradeSizeChange(e.target.value)}
+                                className={`w-full pl-7 pr-3 py-2 bg-[#1A1D24] border border-polymarket-border rounded-md text-white focus:outline-none focus:border-polymarket-blue transition-colors ${isActive && 'opacity-50 cursor-not-allowed'}`}
+                                placeholder="0.1"
+                            />
+                        </div>
+                        <button
+                            disabled={isActive}
+                            onClick={() => handleTradeSizeChange('MAX')}
+                            className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${tradeSize === 'MAX'
+                                    ? 'bg-polymarket-blue/30 text-polymarket-blue border border-polymarket-blue/50'
+                                    : 'bg-[#1A1D24] text-polymarket-text border border-polymarket-border hover:bg-[#2A2D34]'
+                                } ${isActive && 'opacity-50 cursor-not-allowed'}`}
+                        >
+                            MAX
+                        </button>
                     </div>
                 </div>
 
