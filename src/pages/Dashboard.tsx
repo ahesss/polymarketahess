@@ -7,24 +7,64 @@ import {
 export default function Dashboard() {
     const [isActive, setIsActive] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
-    const btcPrice = '65,470.56';
+    const [btcPrice, setBtcPrice] = useState('65,470.56');
+    const [markets, setMarkets] = useState(0);
+    const [signals, setSignals] = useState(0);
 
-    // Dummy log generator for UI
+    // API Polling Loop
     useEffect(() => {
         if (!isActive) return;
 
-        const interval = setInterval(() => {
-            const isBlock = Math.random() > 0.7;
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/bot/scan');
+                if (res.ok) {
+                    const data = await res.json();
+                    setBtcPrice(data.btcPrice);
+                    setMarkets(data.markets);
+                    setSignals(data.signals);
 
-            if (isBlock) {
-                setLogs(prev => [`[LIVE] GEO-BLOCKED: Trading restricted in your region, please refer to available regions - https://docs.polymarket.com/developers/CLOB/geoblock`, ...prev]);
-            } else {
-                setLogs(prev => [`[AI] BTC=$65530 | 5 markets -> 2 signals -> 0 trades (LIVE)`, ...prev]);
+                    setLogs(prev => [`[AI] BTC=$${data.btcPrice} | ${data.markets} markets -> ${data.signals} signals -> 0 trades (LIVE)`, ...prev]);
+                } else {
+                    console.error("Fetch returned non-OK status");
+                }
+            } catch (err) {
+                setLogs(prev => [`[LIVE] GEO-BLOCKED or API Error: Cannot connect to Polymarket. Please check VPN or API keys.`, ...prev]);
             }
-        }, 3000);
+        }, 5000);
 
         return () => clearInterval(interval);
     }, [isActive]);
+
+    const toggleBot = async () => {
+        try {
+            if (!isActive) {
+                // Start Bot
+                const res = await fetch('/api/bot/start', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer DUMMY_TOKEN' }
+                });
+
+                if (res.ok) {
+                    setIsActive(true);
+                    setLogs(prev => ['[SYS] Bot Started. Waiting for signals...', ...prev]);
+                } else {
+                    const errorData = await res.json();
+                    setLogs(prev => [`[ERROR] Failed to start bot: ${errorData.error}`, ...prev]);
+                }
+            } else {
+                // Stop Bot
+                await fetch('/api/bot/stop', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer DUMMY_TOKEN' }
+                });
+                setIsActive(false);
+                setLogs(prev => ['[SYS] Bot Stopped.', ...prev]);
+            }
+        } catch (err) {
+            console.error("Failed to toggle bot", err);
+        }
+    };
 
     return (
         <div className="max-w-md mx-auto min-h-screen pb-10 p-4 space-y-4">
@@ -97,7 +137,7 @@ export default function Dashboard() {
 
                         {/* Custom Toggle Switch */}
                         <button
-                            onClick={() => setIsActive(!isActive)}
+                            onClick={toggleBot}
                             className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${isActive ? 'bg-polymarket-green' : 'bg-gray-600'}`}
                         >
                             <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${isActive ? 'translate-x-6' : 'translate-x-0'}`} />
@@ -115,15 +155,15 @@ export default function Dashboard() {
                 <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="bg-polymarket-card/50 rounded-lg p-2 text-center border border-polymarket-border/30">
                         <div className="text-[10px] text-polymarket-textMuted uppercase mb-1">BTC</div>
-                        <div className="font-semibold text-sm">$65.458</div>
+                        <div className="font-semibold text-sm">${btcPrice}</div>
                     </div>
                     <div className="bg-polymarket-card/50 rounded-lg p-2 text-center border border-polymarket-border/30">
                         <div className="text-[10px] text-polymarket-textMuted uppercase mb-1">Markets</div>
-                        <div className="font-semibold text-sm">5</div>
+                        <div className="font-semibold text-sm">{markets}</div>
                     </div>
                     <div className="bg-polymarket-card/50 rounded-lg p-2 text-center border border-polymarket-border/30">
                         <div className="text-[10px] text-polymarket-textMuted uppercase mb-1">Signals</div>
-                        <div className="font-semibold text-sm text-polymarket-green">2</div>
+                        <div className="font-semibold text-sm text-polymarket-green">{signals}</div>
                     </div>
                 </div>
 
@@ -168,7 +208,7 @@ export default function Dashboard() {
                         <div className="text-polymarket-textMuted italic text-center my-auto">Waiting for agent to activate...</div>
                     ) : (
                         logs.map((log, i) => (
-                            <div key={i} className={`pb-1 ${log.includes('GEO-BLOCKED') ? 'text-red-500' : 'text-polymarket-blue'}`}>
+                            <div key={i} className={`pb-1 ${log.includes('GEO-BLOCKED') || log.includes('ERROR') ? 'text-red-500' : 'text-polymarket-blue'}`}>
                                 <span className="mr-2 opacity-50">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
                                 {log}
                             </div>
